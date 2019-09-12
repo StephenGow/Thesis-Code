@@ -420,7 +420,7 @@ CalcSij <- function(inv_corrmat, F_mat, b, xn, W, nugget, e, beta_hat, sig2_hat,
   return(Sij_hat_all)
 }
 
-#Calculate and plot posterior means of the main effects of all inputs
+#Calculate and plot posterior means across the range of all inputs
 CalcME <- function(b, xn, beta_hat, e, sample, seq_length, samp_complete=T, lim_low=NULL, lim_up=NULL, varnames=NULL){
   
   nvar <- length(b)
@@ -469,7 +469,7 @@ CalcME <- function(b, xn, beta_hat, e, sample, seq_length, samp_complete=T, lim_
   return(PM_EYxi)
 }
 
-#Plot posterior variance bounds of the main effect of an input
+#Plot posterior variance bounds of the mean given an input
 PlotMEBounds <- function(varnum, varmean, inv_corrmat, F_mat, b, xn, W, nugget, beta_hat, e, sig2_hat, sample1, sample2, seq_length, lim_low=0, lim_up=1, samp_complete=T){
   xi_seq <- seq(lim_low, lim_up, len=seq_length)
   PVar_Eyxi <- vector(length=seq_length)
@@ -628,3 +628,90 @@ SensFinal <- function(designs, b_vecs, res_vecs, inv_corrmats, beta0s, sig2s, nu
   return(res1)
 }
 
+#Posterior mean of expectation with some controllable inputs to the chain fixed
+Multimod_EsEygxp <- function(xp, xp_loc, sample, xn_1, xn_2, y1, y2, beta0_1, beta0_2, inv_corrmat1, inv_corrmat2, b1, b2, sig2_1, sig2_2, nugget_1, nugget_2, scale_params=NULL){
+  
+  nsamps <- nrow(sample)
+  num_fixed <- length(xp_loc)
+  means <- vector(length=nsamps)
+  
+  for(i in 1:nsamps){
+    
+    xnew <- sample[i,]
+    for(j in 1:num_fixed){
+      loc_curr <- xp_loc[j]
+      if(loc_curr==1){
+        xnew <- append(xp[j], xnew)
+      }
+      else{
+        xnew <- append(xnew, xp[j], after=loc_curr-1)
+      }
+    }
+    
+    setup_vals <- MM_theor_setup(xnew, xn_1, y1, beta0_1, inv_corrmat1, b1, sig2_1, nugget_1, scale_params)
+    xnew_2 <- setup_vals$xnew_2
+    mu1 <- setup_vals$mu1
+    sig2_y1 <- setup_vals$sig2_y1
+    if(is.null(xnew_2)){
+      means[i] <- PExp_mult_Cpp_nonewin(xn_2, y2, beta0_2, b2, inv_corrmat2, mu1, sig2_y1) 
+    }
+    else{
+      means[i] <- PExp_mult_Cpp_full(xn_2, y2, beta0_2, b2, inv_corrmat2, mu1, sig2_y1, xnew_2)
+    }
+  }
+  
+  EsEygxp <- mean(means)
+  return(EsEygxp)
+}
+
+#Calculate and plot posterior means across the range of all controllable inputs to a chain
+Multimod_calcME <- function(sample, seq_length, xn_1, xn_2, y1, y2, beta0_1, beta0_2, inv_corrmat1, inv_corrmat2, b1, b2, sig2_1, sig2_2, nugget_1, nugget_2, samp_complete=T, lim_low=NULL, lim_up=NULL, varnames=NULL, scale_params=NULL){
+  
+  nvar <- ncol(sample)
+  name_flag <- 0
+  if(is.null(varnames)){
+    varnames <- vector(length=nvar)
+    name_flag <- 1
+  }
+  
+  xi_seq <- matrix(nrow=nvar, ncol=seq_length)
+  PM_Eyxi <- matrix(nrow=nvar, ncol=seq_length)
+  PVar_Eyxi <- matrix(nrow=nvar, ncol=seq_length)
+  if(is.null(lim_low)){
+    lim_low <- rep(0, nvar)
+  }
+  if(is.null(lim_up)){
+    lim_up <- rep(1, nvar)
+  }
+  for(i in 1:(nvar)){
+    xi_seq[i,] <- seq(lim_low[i], lim_up[i], len=seq_length)
+    if(samp_complete==T){
+      samp_curr <- sample[,-i]
+    }
+    else{
+      samp_curr <- sample
+    }
+    for(j in 1:seq_length){
+      xi_curr <- xi_seq[i,j]
+      res_temp <- Multimod_EsEygxp(xi_curr, i, samp_curr, xn_1, xn_2, y1, y2, beta0_1, beta0_2, inv_corrmat1, inv_corrmat2, b1, b2, sig2_1, sig2_2, nugget_1, nugget_2, scale_params)
+      PM_Eyxi[i, j] <- res_temp
+    }
+  }
+  
+  plot(xi_seq[1,], PM_Eyxi[1, ], type="l", xlab="xi", ylab="E(Y|xi)", ylim=c(min(PM_Eyxi), max(PM_Eyxi)), xlim=c(min(lim_low), max(lim_up)))
+  if(name_flag==1){
+    varnames[1] <- paste("x", 1, sep="")
+  }
+  
+  if(nvar>1){
+    for(i in 2:nvar){
+      lines(xi_seq[i,], PM_Eyxi[i, ], col=i)
+      if(name_flag==1){
+        varnames[i] <- paste("x", i, sep="")
+      }
+    }
+  }
+  legend("topright", legend=varnames, lty=1, col=1:nvar, cex=0.8)
+  
+  return(PM_Eyxi)
+}
