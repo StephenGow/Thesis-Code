@@ -621,8 +621,14 @@ SensFinal <- function(designs, b_vecs, res_vecs, inv_corrmats, beta0s, sig2s, nu
     sample2_final_y <- MM_pred_theory(samples2, designs, b_vecs, res_vecs, inv_corrmats, beta0s, sig2s, nuggets, scale_params)
   }
   
-  sample1_final <- cbind(sample1_final_y, samples1_final_xs)
-  sample2_final <- cbind(sample2_final_y, samples2_final_xs)
+  if(is.null(samples1_final_xs)){
+    sample1_final <- sample1_final_y
+    sample2_final <- sample2_final_y
+  }
+  else{
+    sample1_final <- cbind(sample1_final_y, samples1_final_xs)
+    sample2_final <- cbind(sample2_final_y, samples2_final_xs)
+  }
   
   res1 <- SensGP(des_final, res_final, inv_corrmat_final, F_mat_final, b_final, nugget_final, sample1_final, sample2_final, seq_length=seq_length, bounds=bounds, ints=ints, lim_low=lim_low, lim_up=lim_up, varnames=varnames)
   return(res1)
@@ -665,7 +671,7 @@ Multimod_EsEygxp <- function(xp, xp_loc, sample, xn_1, xn_2, y1, y2, beta0_1, be
 }
 
 #Calculate and plot posterior means across the range of all controllable inputs to a chain
-Multimod_calcME <- function(sample, seq_length, xn_1, xn_2, y1, y2, beta0_1, beta0_2, inv_corrmat1, inv_corrmat2, b1, b2, sig2_1, sig2_2, nugget_1, nugget_2, samp_complete=T, lim_low=NULL, lim_up=NULL, varnames=NULL, scale_params=NULL){
+Multimod_calcME <- function(sample, xn_1, xn_2, y1, y2, beta0_1, beta0_2, inv_corrmat1, inv_corrmat2, b1, b2, sig2_1, sig2_2, nugget_1, nugget_2, seq_length=200, lim_low=NULL, lim_up=NULL, varnames=NULL, scale_params=NULL){
   
   nvar <- ncol(sample)
   name_flag <- 0
@@ -685,12 +691,7 @@ Multimod_calcME <- function(sample, seq_length, xn_1, xn_2, y1, y2, beta0_1, bet
   }
   for(i in 1:(nvar)){
     xi_seq[i,] <- seq(lim_low[i], lim_up[i], len=seq_length)
-    if(samp_complete==T){
-      samp_curr <- sample[,-i]
-    }
-    else{
-      samp_curr <- sample
-    }
+    samp_curr <- sample[,-i]
     for(j in 1:seq_length){
       xi_curr <- xi_seq[i,j]
       res_temp <- Multimod_EsEygxp(xi_curr, i, samp_curr, xn_1, xn_2, y1, y2, beta0_1, beta0_2, inv_corrmat1, inv_corrmat2, b1, b2, sig2_1, sig2_2, nugget_1, nugget_2, scale_params)
