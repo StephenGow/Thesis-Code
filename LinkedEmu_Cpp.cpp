@@ -9,9 +9,10 @@ using namespace arma;
 
 // [[Rcpp::export("hfunc_linear_Cpp")]]
 arma::vec hfunc_linear_Cpp(arma::vec x){ //Linear regression function 
+    
     arma::vec vec_out(2);
     vec_out[0] = 1;
-    vec_out[1] = x;
+    vec_out[1] = 2;
     return(vec_out);
 }
 
@@ -265,7 +266,7 @@ double PVar_mult_Cpp_nonewin(arma::mat xn, arma::vec a, arma::vec theta, arma::m
 double cstar_Cpp(arma::vec x1, arma::vec x2, arma::mat inv_Cmat, arma::mat F_mat, arma::vec b, arma::mat xn, arma::mat W, double nugget){ 
 
     arma::vec xdiff = x1 - x2;
-    double cterm = corr_func_Cpp(b, xdiff);
+    double cterm = corrfunc_Gauss_Cpp(b, xdiff);
     bool same_x = approx_equal(x1, x2, "absdiff", 1e-7);
     if(same_x==TRUE){
         cterm += nugget;
@@ -306,7 +307,8 @@ double mstar_Cpp(arma::vec x, arma::vec e, arma::vec b, arma::mat xn, arma::vec 
     return(res);
 }
 
-//Everything below this is a Monte Carlo integral or multiple integral required for sensitivity analysis, including importance sampling versions for each. Quantities being integrated and the distribution being integrated with respect to are given in the function names.
+/*Everything below this is a Monte Carlo integral or multiple integral required for sensitivity analysis, including importance sampling versions for each. 
+Quantities being integrated and the distribution being integrated with respect to are given in the function names. */
 
 // [[Rcpp::export("Rint_dG_Cpp_importance")]]
 arma::rowvec Rint_dG_Cpp_importance(Function G_func, Function S_func, arma::mat sample, int dimh=1){
@@ -848,3 +850,4 @@ double Cstarint_dGdG_Cpp_exact(arma::mat sample1, arma::mat sample2, arma::mat i
     double int_final = mean(int_vec);
     return(int_final);
 }
+
