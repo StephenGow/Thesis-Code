@@ -29,6 +29,7 @@ MM_pred_simu <- function(sampsize, predpts, loc_vec, designs, b_vecs, res_vecs, 
   
   for(i in 1:length(designs)){
     designs[[i]] <- as.matrix(designs[[i]])
+    F_mats[[i]] <- as.matrix(F_mats[[i]])
     if(i <= length(predpts)){
       if(!is.null(predpts[[i]])){
         predpts[[i]] <- as.matrix(predpts[[i]]) 
@@ -261,6 +262,32 @@ MM_pred_theory <- function(predpts, designs, b_vecs, res_vecs, inv_corrmats, bet
 
 ######Functions for sensitivity analysis - one emulator
 
+GP_Posterior_values_strong <- function(xn, yn, inv_Rmat, F_mat, b0, V0, c0, nu0){
+  #Function to calculate the required variables from the posterior distribution of the GP emulator using the strong form of the prior. Returns estimates of the unknown parameters beta and sigma^2.
+  
+  npts <- nrow(xn)
+  inv_v0 <- chol2inv(chol(V0))
+  Vstar_inv <- inv_v0 + t(F_mat) %*% inv_Rmat %*% F_mat
+  Vstar <- solve(Vstar_inv)
+  vec1 <- inv_v0 %*% b0 + t(F_mat) %*% (inv_Rmat %*% yn)
+  beta_hat <- as.vector(Vstar %*% vec1)
+  sig2_hat_num <- c0 + (t(b0) %*% (inv_v0 %*% b0)) + (t(yn) %*% inv_Rmat %*% yn) - (t(beta_hat) %*% (Vstar_inv %*% beta_hat))
+  sig2_hat <- sig2_hat_num / (npts + nu0 - 2) 
+  return(list(beta_hat=beta_hat, sig2_hat=sig2_hat))
+}
+
+GP_Posterior_values_weak <- function(xn, yn, inv_Rmat, F_mat){
+  #Function to calculate the required variables from the posterior distribution of the GP emulator using the weak form of the prior. Returns estimates of the unknown parameters beta and sigma^2.
+  
+  npts <- nrow(xn)
+  Vstar_inv <- t(F_mat) %*% inv_Rmat %*% F_mat
+  Vstar <- solve(Vstar_inv)
+  vec1 <- t(F_mat) %*% (inv_Rmat %*% yn)
+  beta_hat <- as.vector(Vstar %*% vec1)
+  sig2_hat <- (t(yn) %*% inv_Rmat %*% yn - t(beta_hat) %*% (Vstar_inv %*% beta_hat)) / (npts - 2)
+  return(list(beta_hat=beta_hat, sig2_hat=sig2_hat))
+}
+
 #Posterior mean of the expectation with no fixed inputs
 PExp_EY <- function(b, xn, beta_hat, inv_corrmat, F_mat, yn, sample, is.exact=T, G=NULL, S=NULL){
   
@@ -451,7 +478,7 @@ CalcME <- function(b, xn, beta_hat, e, sample, seq_length, samp_complete=T, lim_
     }
   }
   
-  plot(xi_seq[1,], PM_EYxi[1, ], type="l", xlab="xi", ylab="E(Y|xi)", ylim=c(min(PM_EYxi), max(PM_EYxi)), xlim=c(min(lim_low), max(lim_up)))
+  plot(xi_seq[1,], PM_EYxi[1, ], type="l", xlab=expression("x"["i"]), ylab=expression("E(Y|x"["i"]*")"), ylim=c(min(PM_EYxi), max(PM_EYxi)), xlim=c(min(lim_low), max(lim_up)))
   if(name_flag==1){
     varnames[1] <- paste("x", 1, sep="")
   }
@@ -600,11 +627,11 @@ SensFinal <- function(designs, b_vecs, res_vecs, inv_corrmats, beta0s, sig2s, nu
   if(nmod==2){
     F_mat1 <- as.matrix(rep(1, length(designs[[1]][,1])))
     corr_mat1 <- chol2inv(chol(inv_corrmats[[1]]))
-    sample1_final_y <- GPsamp_multiple(1, samples1[[1]], designs[[1]], b_vecs[[1]], res_vecs[[1]], F_mat1, corr_mat1, 1)
-    sample2_final_y <- GPsamp_multiple(1, samples2[[1]], designs[[1]], b_vecs[[1]], res_vecs[[1]], F_mat1, corr_mat1, 1)
+    pred1_final_y <- GPsamp_multiple(1, samples1[[1]], designs[[1]], b_vecs[[1]], res_vecs[[1]], F_mat1, corr_mat1, 1)
+    pred2_final_y <- GPsamp_multiple(1, samples2[[1]], designs[[1]], b_vecs[[1]], res_vecs[[1]], F_mat1, corr_mat1, 1)
     if(!is.null(scale_params)){
-      sample1_final_y <- (sample1_final_y - scale_params[1]) / scale_params[2]
-      sample2_final_y <- (sample2_final_y - scale_params[1]) / scale_params[2]
+      pred1_final_y <- (sample1_final_y - scale_params[1]) / scale_params[2]
+      pred2_final_y <- (sample2_final_y - scale_params[1]) / scale_params[2]
     }
   }
   else{
@@ -617,8 +644,25 @@ SensFinal <- function(designs, b_vecs, res_vecs, inv_corrmats, beta0s, sig2s, nu
     nuggets[[nmod]] <- NULL
     samples1[[nmod]] <- NULL
     samples2[[nmod]] <- NULL
-    sample1_final_y <- MM_pred_theory(samples1, designs, b_vecs, res_vecs, inv_corrmats, beta0s, sig2s, nuggets, scale_params)
-    sample2_final_y <- MM_pred_theory(samples2, designs, b_vecs, res_vecs, inv_corrmats, beta0s, sig2s, nuggets, scale_params)
+    pred1_final_y <- MM_pred_theory(samples1, designs, b_vecs, res_vecs, inv_corrmats, beta0s, sig2s, nuggets, scale_params)
+    pred2_final_y <- MM_pred_theory(samples2, designs, b_vecs, res_vecs, inv_corrmats, beta0s, sig2s, nuggets, scale_params)
+  }
+  
+  pred1_y_means <- pred1_final_y$means
+  pred1_y_vars <- pred1_final_y$vars
+  pred2_y_means <- pred2_final_y$means
+  pred2_y_vars <- pred2_final_y$vars
+  
+  size <- nrow(as.matrix(samples1[[1]]))
+  
+  sample1_final_y <- vector(length=size)
+  for(i in 1:size){
+    sample1_final_y[i] <- rnorm(1, pred1_y_means[i], pred1_y_vars[i])
+  }
+  
+  sample2_final_y <- vector(length=size)
+  for(i in 1:size){
+    sample2_final_y[i] <- rnorm(1, pred2_y_means[i], pred2_y_vars[i])
   }
   
   if(is.null(samples1_final_xs)){
@@ -659,10 +703,10 @@ Multimod_EsEygxp <- function(xp, xp_loc, sample, xn_1, xn_2, y1, y2, beta0_1, be
     mu1 <- setup_vals$mu1
     sig2_y1 <- setup_vals$sig2_y1
     if(is.null(xnew_2)){
-      means[i] <- PExp_mult_Cpp_nonewin(xn_2, y2, beta0_2, b2, inv_corrmat2, mu1, sig2_y1) 
+      means[i] <- PExp_mult_Cpp_nonewin(xn_2, y2, beta0_2, b2, mu1, sig2_y1) 
     }
     else{
-      means[i] <- PExp_mult_Cpp_full(xn_2, y2, beta0_2, b2, inv_corrmat2, mu1, sig2_y1, xnew_2)
+      means[i] <- PExp_mult_Cpp_full(xn_2, y2, beta0_2, b2, mu1, sig2_y1, xnew_2)
     }
   }
   
@@ -670,7 +714,7 @@ Multimod_EsEygxp <- function(xp, xp_loc, sample, xn_1, xn_2, y1, y2, beta0_1, be
   return(EsEygxp)
 }
 
-#Calculate and plot posterior means across the range of all controllable inputs to a chain
+#Calculate and plot posterior means across the range of all controllable inputs to a two-model chain
 Multimod_calcME <- function(sample, xn_1, xn_2, y1, y2, beta0_1, beta0_2, inv_corrmat1, inv_corrmat2, b1, b2, sig2_1, sig2_2, nugget_1, nugget_2, seq_length=200, lim_low=NULL, lim_up=NULL, varnames=NULL, scale_params=NULL){
   
   nvar <- ncol(sample)
@@ -691,7 +735,7 @@ Multimod_calcME <- function(sample, xn_1, xn_2, y1, y2, beta0_1, beta0_2, inv_co
   }
   for(i in 1:(nvar)){
     xi_seq[i,] <- seq(lim_low[i], lim_up[i], len=seq_length)
-    samp_curr <- sample[,-i]
+    samp_curr <- as.matrix(sample[,-i])
     for(j in 1:seq_length){
       xi_curr <- xi_seq[i,j]
       res_temp <- Multimod_EsEygxp(xi_curr, i, samp_curr, xn_1, xn_2, y1, y2, beta0_1, beta0_2, inv_corrmat1, inv_corrmat2, b1, b2, sig2_1, sig2_2, nugget_1, nugget_2, scale_params)
@@ -699,9 +743,9 @@ Multimod_calcME <- function(sample, xn_1, xn_2, y1, y2, beta0_1, beta0_2, inv_co
     }
   }
   
-  plot(xi_seq[1,], PM_Eyxi[1, ], type="l", xlab="xi", ylab="E(Y|xi)", ylim=c(min(PM_Eyxi), max(PM_Eyxi)), xlim=c(min(lim_low), max(lim_up)))
+  plot(xi_seq[1,], PM_Eyxi[1, ], type="l", xlab=expression("x"[i]), ylab=expression("E(Y|x"[i]*")"), ylim=c(min(PM_Eyxi), max(PM_Eyxi)), xlim=c(min(lim_low), max(lim_up)))
   if(name_flag==1){
-    varnames[1] <- paste("x", 1, sep="")
+    varnames[1] <- "x1"
   }
   
   if(nvar>1){
